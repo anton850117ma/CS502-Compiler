@@ -75,50 +75,66 @@ llvm::Type* Identifier::llvmType(bool treatArrayAsPtr /* = true */) noexcept
 		case Type::Function:
 			break;
 	}
-	
+
 	return type;
 }
 
 llvm::Value* Identifier::readFrom(CodeContext& ctx) noexcept
 {
 	// PA4: Rewrite this entire function
-
-	llvm::Value* retVal = nullptr;
-	// Special case for arrays local to this function
-	if (isArray() && getArrayCount() != -1)
-	{
-		retVal = getAddress();
-	}
-	else
-	{
-		// PA3: Load from the memory address of this identifier
-	}
+	llvm::Value* retVal = ctx.mSSA.readVariable(this, ctx.mBlock);
 	return retVal;
+
+	// llvm::Value* retVal = nullptr;
+	// // Special case for arrays local to this function
+	// if (isArray() && getArrayCount() != -1)
+	// {
+	// 	retVal = getAddress();
+	// }
+	// else
+	// {
+	// 	// PA3: Load from the memory address of this identifier
+	// 	llvm::IRBuilder<> build(ctx.mBlock);
+	// 	retVal = build.CreateLoad(this->getAddress(), this->getName());
+	// }
+	// return retVal;
 }
 
 void Identifier::writeTo(CodeContext& ctx, llvm::Value* value) noexcept
 {
 	// PA4: Rewrite this entire function
+	ctx.mSSA.writeVariable(this, ctx.mBlock, value);
 
 	// Special case for arrays local to this function
-	if (isArray() && getArrayCount() != -1)
-	{
-		setAddress(value);
-	}
-	else
-	{
-		// PA3: Write to memory address of this identifier
-	}
+	// if (isArray() && getArrayCount() != -1)
+	// {
+	// 	setAddress(value);
+	// }
+	// else
+	// {
+	// 	// PA3: Write to memory address of this identifier
+	// 	llvm::IRBuilder<> build(ctx.mBlock);
+	// 	build.CreateStore(value, this->getAddress());
+	// }
 }
 
 SymbolTable::SymbolTable() noexcept
 {
 	// PA2: Implement
+	mCurrScope = nullptr;
+	enterScope();
+	Identifier* identFunc = createIdentifier("@@function");
+	identFunc->setType(Type::Function);
+	Identifier* identVar = createIdentifier("@@variable");
+	identVar->setType(Type::Int);
+	Identifier* identPrint = createIdentifier("printf");
+	identPrint->setType(Type::Function);
 }
 
 SymbolTable::~SymbolTable() noexcept
 {
 	// PA2: Implement
+	delete mCurrScope;
 }
 
 // Returns true if this variable is already declared
@@ -128,8 +144,10 @@ SymbolTable::~SymbolTable() noexcept
 bool SymbolTable::isDeclaredInScope(const char* name) const noexcept
 {
 	// PA2: Implement
-	
-	return false;
+	if (mCurrScope->searchInScope(name))
+		return true;
+	else
+		return false;
 }
 
 // Creates the requested identifier, and returns a pointer
@@ -138,10 +156,14 @@ bool SymbolTable::isDeclaredInScope(const char* name) const noexcept
 // This means you should first check with isDeclaredInScope.
 Identifier* SymbolTable::createIdentifier(const char* name)
 {
-	Identifier* ident = new Identifier(name);
-	
 	// PA2: Add to current scope table
-	
+
+	if (isDeclaredInScope(name))
+		return nullptr;
+
+	Identifier* ident = new Identifier(name);
+	mCurrScope->addIdentifier(ident);
+
 	return ident;
 }
 
@@ -150,14 +172,18 @@ Identifier* SymbolTable::createIdentifier(const char* name)
 Identifier* SymbolTable::getIdentifier(const char* name)
 {
 	// PA2: Implement properly
-	return new Identifier(name);
+	Identifier* ident = nullptr;
+	ident = mCurrScope->search(name);
+	return ident;
 }
 
 // Enters a new scope, and returns a pointer to this scope table
 SymbolTable::ScopeTable* SymbolTable::enterScope()
 {
 	// PA2: Implement
-	return nullptr;
+	ScopeTable* table = new ScopeTable(mCurrScope);
+	mCurrScope = table;
+	return table;
 }
 
 // Prints the symbol table to the specified stream
@@ -175,23 +201,39 @@ void SymbolTable::print(std::ostream& output) const noexcept
 void SymbolTable::exitScope()
 {
 	// PA2: Implement
+	mCurrScope = mCurrScope->getParent();
 }
 
 SymbolTable::ScopeTable::ScopeTable(ScopeTable* parent) noexcept
 : mParent(parent)
 {
 	// PA2: Implement
+	if (parent)	parent->mChildren.push_back(this);
+	mSymbols.clear();
+	mChildren.clear();
 }
 
 SymbolTable::ScopeTable::~ScopeTable() noexcept
 {
 	// PA2: Implement
+	//not sure
+
+	for (auto& it : mSymbols)
+		delete it.second;
+	for (auto& it : mChildren)
+		delete it;
+
+	mSymbols.clear();
+	mChildren.clear();
+	// delete mParent;
 }
 
 // Adds the requested identifier to the table
 void SymbolTable::ScopeTable::addIdentifier(Identifier* ident)
 {
 	// PA2: Implement
+	std::pair<std::string, Identifier*> newIdent (ident->getName(), ident);
+	mSymbols.insert(newIdent);
 }
 
 // Searches this scope for an identifier with
@@ -199,7 +241,12 @@ void SymbolTable::ScopeTable::addIdentifier(Identifier* ident)
 Identifier* SymbolTable::ScopeTable::searchInScope(const char* name) noexcept
 {
 	// PA2: Implement
-	return nullptr;
+	std::string keyName(name);
+	std::unordered_map<std::string, Identifier*>::const_iterator got = mSymbols.find(keyName);
+	if (got == mSymbols.end())
+		return nullptr;
+	else
+		return got->second;
 }
 
 // Searches this scope first, and if not found searches
@@ -207,8 +254,15 @@ Identifier* SymbolTable::ScopeTable::searchInScope(const char* name) noexcept
 Identifier* SymbolTable::ScopeTable::search(const char* name) noexcept
 {
 	// PA2: Implement
-	
-	return nullptr;
+	Identifier* ident = nullptr;
+
+	ident = searchInScope(name);
+
+	if (!ident)
+		if (mParent)
+			ident = mParent->search(name);
+
+	return ident;
 }
 
 void SymbolTable::ScopeTable::emitIR(CodeContext& ctx)
@@ -221,9 +275,9 @@ void SymbolTable::ScopeTable::emitIR(CodeContext& ctx)
 		llvm::IRBuilder<> build(ctx.mBlock);
 
 		llvm::Value* decl = nullptr;
-		
+
 		std::string name = ident->getName();
-		
+
 		// It's -1 if it's an array that's passed into a function,
 		// in which case we don't allocate it
 		if (ident->isArray() && ident->getArrayCount() != -1)
@@ -233,29 +287,40 @@ void SymbolTable::ScopeTable::emitIR(CodeContext& ctx)
 			// handled by the type
 			decl = build.CreateAlloca(type, nullptr, name);
 			llvm::cast<llvm::AllocaInst>(decl)->setAlignment(8);
-			
+
 			// Make a GEP here so we can access it later on without issue
 			std::vector<llvm::Value*> gepIdx;
 			gepIdx.push_back(ctx.mZero);
 			gepIdx.push_back(ctx.mZero);
-			
+
 			decl = build.CreateInBoundsGEP(decl, gepIdx);
-			
+
 			// Now write this GEP and save it for this identifier
 			ident->writeTo(ctx, decl);
 		}
 		else
 		{
 			// PA4: Remove this else case
-			
+			;
 			// PA3: Alloca the variables local to this function,
 			// and save the address.
 			// (Make sure you check for function arguments, which
 			// will already have a value which we needs to be copied)
-			
+
+			// decl = build.CreateAlloca(ident->llvmType(), nullptr, name);
+
+			// if (ident->getAddress())
+			// {
+			// 	// keep the old address and set the new address with it
+			// 	llvm::Value* oldAddr = ident->getAddress();
+			// 	ident->setAddress(decl);
+			// 	ident->writeTo(ctx, oldAddr);
+			// }
+			// else
+			// 	ident->setAddress(decl);
 		}
 	}
-	
+
 	// Now emit all the variables in the child scope tables
 	for (auto table : mChildren)
 	{
@@ -325,7 +390,7 @@ void SymbolTable::ScopeTable::print(std::ostream& output, int depth) const noexc
 
 StringTable::StringTable() noexcept
 {
-	
+
 }
 
 StringTable::~StringTable() noexcept
@@ -361,12 +426,12 @@ void StringTable::emitIR(CodeContext& ctx) noexcept
 		ConstStr* str = s.second;
 		// Make the llvm value for this string
 		llvm::Constant* strVal = llvm::ConstantDataArray::getString(ctx.mGlobal, str->mText);
-		
+
 		// Add this to the global table
 		llvm::ArrayType* type = llvm::ArrayType::get(llvm::Type::getInt8Ty(ctx.mGlobal),
 													 str->mText.size() + 1);
-		
-		
+
+
 		llvm::GlobalValue* globVal =
 			new llvm::GlobalVariable(*ctx.mModule, type, true,
 									 llvm::GlobalValue::LinkageTypes::PrivateLinkage,
@@ -375,7 +440,7 @@ void StringTable::emitIR(CodeContext& ctx) noexcept
 		globVal->setUnnamedAddr(true);
 		// Strings are 1-aligned
 		//globVal->setAlignment(1);
-		
+
 		str->mValue = globVal;
 	}
 }

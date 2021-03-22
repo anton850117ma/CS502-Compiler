@@ -43,13 +43,13 @@ Parser::Parser(const char* fileName, std::ostream* errStream,
 , mColNumber(1)
 , mUnusedIdent(nullptr)
 , mNeedPrintf(false)
-, mCheckSemant(false) // PA2: Change to true
+, mCheckSemant(true) // PA2: Change to true
 , mOutputSymbols(outputSymbols)
 {
 	if (mFileStream.is_open())
 	{
 		mLexer = new yyFlexLexer(&mFileStream);
-				
+
 		try
 		{
 			// Get the first token
@@ -67,7 +67,7 @@ Parser::Parser(const char* fileName, std::ostream* errStream,
 	{
 		throw FileNotFound();
 	}
-	
+
 	if (!IsValid())
 	{
 		displayErrors();
@@ -88,7 +88,7 @@ const char* Parser::getTokenTxt() const noexcept
 	{
 		retVal = mLexer->YYText();
 	}
-	
+
 	return retVal;
 }
 
@@ -113,7 +113,7 @@ void Parser::consumeToken(bool unknownIsExcept)
 			mColNumber += mLexer->YYLeng();
 		}
 	}
-	
+
 	do
 	{
 		mCurrToken = static_cast<Token::Tokens>(mLexer->yylex());
@@ -171,10 +171,10 @@ bool Parser::peekAndConsume(Token::Tokens desired)
 		consumeToken();
 		return true;
 	}
-	
+
 	return false;
 }
-	
+
 // Returns true if the current token matches one of the tokens
 // in the list.
 bool Parser::peekIsOneOf(const std::initializer_list<Token::Tokens>& list) noexcept
@@ -247,7 +247,7 @@ void Parser::consumeUntil(const std::initializer_list<Token::Tokens>& list) noex
 	{
 		return;
 	}
-	
+
 	do
 	{
 		for (auto t : list)
@@ -257,12 +257,12 @@ void Parser::consumeUntil(const std::initializer_list<Token::Tokens>& list) noex
 				return;
 			}
 		}
-		
+
 		consumeToken(false);
 	}
 	while (mCurrToken != Token::EndOfFile);
 }
-			
+
 // Helper functions to report syntax errors
 void Parser::reportError(const ParseExcept& except) noexcept
 {
@@ -270,12 +270,12 @@ void Parser::reportError(const ParseExcept& except) noexcept
 	except.printException(errStrm);
 	mErrors.push_back(std::make_shared<Error>(errStrm.str(), mLineNumber, mColNumber));
 }
-			
+
 void Parser::reportError(const std::string& msg) noexcept
 {
 	mErrors.push_back(std::make_shared<Error>(msg, mLineNumber, mColNumber));
 }
-	
+
 void Parser::reportSemantError(const std::string& msg, int colOverride, int lineOverride) noexcept
 {
 	if (mCheckSemant)
@@ -289,7 +289,7 @@ void Parser::reportSemantError(const std::string& msg, int colOverride, int line
 		{
 			col = colOverride;
 		}
-		
+
 		int line;
 		if (lineOverride == -1)
 		{
@@ -299,7 +299,7 @@ void Parser::reportSemantError(const std::string& msg, int colOverride, int line
 		{
 			line = lineOverride;
 		}
-		
+
 		mErrors.push_back(make_shared<Error>(msg, line, col));
 	}
 }
@@ -309,7 +309,7 @@ void Parser::displayErrorMsg(const std::string& line, std::shared_ptr<Error> err
 	(*mErrStream) << mFileName << ":" << error->mLineNum << ":" << error->mColNum;
 	(*mErrStream) << ": error: ";
 	(*mErrStream) << error->mMsg << std::endl;
-	
+
 	(*mErrStream) << line << std::endl;
 	// Now add the caret
 	for (int i = 0; i < error->mColNum - 1; i++)
@@ -325,7 +325,7 @@ void Parser::displayErrorMsg(const std::string& line, std::shared_ptr<Error> err
 	}
 	(*mErrStream) << '^' << std::endl;
 }
-	
+
 void Parser::displayErrors() noexcept
 {
 	// Output errors
@@ -343,7 +343,7 @@ void Parser::displayErrors() noexcept
 			std::getline(mFileStream, lineTxt);
 			lineNum++;
 		}
-		
+
 		displayErrorMsg(lineTxt, *i);
 	}
 }
@@ -351,9 +351,16 @@ void Parser::displayErrors() noexcept
 Identifier* Parser::getVariable(const char* name) noexcept
 {
 	// PA2: Implement properly
-	
-	Identifier* ident = mSymbols.createIdentifier(name);
-	
+
+	Identifier* ident = nullptr;
+	std::string vName(name);
+	ident = mSymbols.getIdentifier(name);
+
+	if (!ident)
+	{
+		reportSemantError("Use of undeclared identifier '" + vName + "\'");
+		ident = mSymbols.getIdentifier("@@variable");
+	}
 	return ident;
 }
 
@@ -381,21 +388,69 @@ const char* Parser::getTypeText(Type type) const noexcept
 // Otherwise it doesn't do anything.
 std::shared_ptr<ASTExpr> Parser::charToInt(std::shared_ptr<ASTExpr> expr) noexcept
 {
-	std::shared_ptr<ASTExpr> retVal = expr;
-	
+
 	// PA2: Implement
-	
-	return retVal;
+	if (expr->getType() == Type::Int)
+		return expr;
+	else if (expr->getType() == Type::Char)
+	{
+		ASTConstantExpr* constCharToInt;
+		constCharToInt = dynamic_cast<ASTConstantExpr*>(expr.get());
+		ASTToCharExpr* intToInt;
+		intToInt = dynamic_cast<ASTToCharExpr*>(expr.get());
+
+		if (constCharToInt)
+		{
+			constCharToInt->changeToInt();
+			return expr;
+		}
+		else if (intToInt)
+		{
+			return intToInt->getChild();
+		}
+		else
+		{
+			std::shared_ptr<ASTToIntExpr> toInt;
+			toInt = make_shared<ASTToIntExpr>(expr);
+			return toInt;
+		}
+	}
+	else
+		return expr;
 }
 
 // Like the above, but in reverse
 std::shared_ptr<ASTExpr> Parser::intToChar(std::shared_ptr<ASTExpr> expr) noexcept
 {
-	std::shared_ptr<ASTExpr> retVal = expr;
-	
+
 	// PA2: Implement
-	
-	return retVal;
+	if (expr->getType() == Type::Char)
+		return expr;
+	else if (expr->getType() == Type::Int)
+	{
+		ASTConstantExpr* constIntToChar;
+		constIntToChar = dynamic_cast<ASTConstantExpr*>(expr.get());
+		ASTToIntExpr* charToChar;
+		charToChar = dynamic_cast<ASTToIntExpr*>(expr.get());
+
+		if (constIntToChar)
+		{
+			constIntToChar->changeToChar();
+			return expr;
+		}
+		else if (charToChar)
+		{
+			return charToChar->getChild();
+		}
+		else
+		{
+			std::shared_ptr<ASTToCharExpr> toChar;
+			toChar = make_shared<ASTToCharExpr>(expr);
+			return toChar;
+		}
+	}
+	else
+		return expr;
 }
 
 // The entry point for the parser
@@ -403,20 +458,20 @@ shared_ptr<ASTProgram> Parser::parseProgram()
 {
 	// Create our base program node.
 	shared_ptr<ASTProgram> retVal = make_shared<ASTProgram>();
-	
+
 	shared_ptr<ASTFunction> func = parseFunction();
-	
+
 	while (func)
 	{
 		retVal->addFunction(func);
 		func = parseFunction();
 	}
-	
+
 	if (peekToken() != Token::EndOfFile)
 	{
 		reportError("Expected end of file");
 	}
-	
+
 	if (IsValid())
 	{
 		if (mASTStream)
@@ -428,19 +483,19 @@ shared_ptr<ASTProgram> Parser::parseProgram()
 			}
 		}
 	}
-	
+
 	return retVal;
 }
-	
+
 shared_ptr<ASTFunction> Parser::parseFunction()
 {
 	shared_ptr<ASTFunction> retVal;
-	
+
 	// Check for a return type
 	if (peekIsOneOf({Token::Key_void, Token::Key_int, Token::Key_char}))
 	{
 		Type retType;
-		
+
 		switch(peekToken())
 		{
 			case Token::Key_char:
@@ -454,11 +509,11 @@ shared_ptr<ASTFunction> Parser::parseFunction()
 				retType = Type::Void;
 				break;
 		}
-		
+
 		mCurrReturnType = retType;
-		
+
 		consumeToken();
-		
+
 		// Add a useful message if they're trying to return
 		// an array, which USC doesn't allow
 		if (peekAndConsume(Token::LBracket))
@@ -471,7 +526,7 @@ shared_ptr<ASTFunction> Parser::parseFunction()
 			}
 			matchToken(Token::RBracket);
 		}
-		
+
 		Identifier* ident = nullptr;
 		if (peekToken() != Token::Identifier)
 		{
@@ -481,9 +536,9 @@ shared_ptr<ASTFunction> Parser::parseFunction()
 			err += getTokenTxt();
 			err += " is invalid";
 			reportError(err);
-			
+
 			// Set this to a bogus debug symbol so the parse continues
-			
+
 			ident = mSymbols.getIdentifier("@@function");
 			// skip until the open parenthesis
 			consumeUntil(Token::LParen);
@@ -502,7 +557,7 @@ shared_ptr<ASTFunction> Parser::parseFunction()
 				err += getTokenTxt();
 				err += '\'';
 				reportSemantError(err);
-				
+
 				// Set the identifier to @@function
 				ident = mSymbols.getIdentifier("@@function");
 			}
@@ -510,28 +565,28 @@ shared_ptr<ASTFunction> Parser::parseFunction()
 			{
 				ident = mSymbols.createIdentifier(getTokenTxt());
 				ident->setType(Type::Function);
-				
+
 				if (ident->getName() == "main" && retType != Type::Int)
 				{
 					reportSemantError("Function 'main' must return an int");
 				}
 			}
-			
+
 			consumeToken();
 		}
-		
+
 		// Once we are here, it's time to enter the scope of the function,
 		// since arguments count as the function's main body scope
 		SymbolTable::ScopeTable* table = mSymbols.enterScope();
-		
+
 		retVal = make_shared<ASTFunction>(*ident, retType, *table);
-		
+
 		// If this isn't the dummy function, hook up the node
 		if (!ident->isDummy())
 		{
 			ident->setFunction(retVal);
 		}
-		
+
 		if (peekAndConsume(Token::LParen))
 		{
 			try
@@ -563,7 +618,7 @@ shared_ptr<ASTFunction> Parser::parseFunction()
 					throw EOFExcept();
 				}
 			}
-			
+
 			matchToken(Token::RParen);
 			if (ident->getName() == "main" && retVal->getNumArgs() != 0)
 			{
@@ -582,7 +637,7 @@ shared_ptr<ASTFunction> Parser::parseFunction()
 				throw EOFExcept();
 			}
 		}
-		
+
 		// Grab the compound statement for this function
 		shared_ptr<ASTCompoundStmt> funcCompoundStmt;
 		try
@@ -601,27 +656,27 @@ shared_ptr<ASTFunction> Parser::parseFunction()
 			}
 			consumeToken();
 		}
-		
+
 		// Exit the scope, before we potentially throw out of this function
 		// for a non-EOF message.
 		mSymbols.exitScope();
-		
+
 		if (!funcCompoundStmt)
 		{
 			throw ParseExceptMsg("Function implementation missing");
 		}
-		
+
 		// Add the compound statement to this function
 		retVal->setBody(funcCompoundStmt);
 	}
-	
+
 	return retVal;
 }
-	
+
 shared_ptr<ASTArgDecl> Parser::parseArgDecl()
 {
 	shared_ptr<ASTArgDecl> retVal;
-	
+
 	if (peekIsOneOf({Token::Key_int, Token::Key_char}))
 	{
 		Type varType = Type::Void;
@@ -638,14 +693,14 @@ shared_ptr<ASTArgDecl> Parser::parseArgDecl()
 				varType = Type::Void;
 				break;
 		}
-		
+
 		consumeToken();
-		
+
 		if (peekToken() != Token::Identifier)
 		{
 			throw ParseExceptMsg("Unnamed function parameters are not allowed");
 		}
-		
+
 		// For now, set it to the default "error" until we see if this is a new
 		// identifier
 		Identifier* ident = mSymbols.getIdentifier("@@variable");
@@ -660,9 +715,9 @@ shared_ptr<ASTArgDecl> Parser::parseArgDecl()
 		{
 			ident = mSymbols.createIdentifier(getTokenTxt());
 		}
-		
+
 		consumeToken();
-		
+
 		// Is this an array type?
 		if (peekAndConsume(Token::LBracket))
 		{
@@ -677,9 +732,9 @@ shared_ptr<ASTArgDecl> Parser::parseArgDecl()
 			}
 		}
 		ident->setType(varType);
-		
+
 		retVal = make_shared<ASTArgDecl>(*ident);
 	}
-	
+
 	return retVal;
 }

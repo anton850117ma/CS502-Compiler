@@ -23,6 +23,7 @@ void printArray(int array[], int size)
 	printf("%d\n", array[i]);
 }
 
+
 int main()
 {
 	// This really makes me feel that

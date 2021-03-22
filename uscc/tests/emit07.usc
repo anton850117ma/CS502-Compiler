@@ -31,7 +31,7 @@ int main()
 {
 	int x = 5;
 	printf("%d\n", !x);
-	
+
 	while (x > 0)
 	{
 		int y = 8;
@@ -43,8 +43,8 @@ int main()
 			++y;
 		}
 	}
-	
+
 	printf("%d\n", !x);
-	
+
 	return 0;
 }

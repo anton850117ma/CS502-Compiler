@@ -52,8 +52,15 @@ shared_ptr<ASTDecl> Parser::parseDecl()
 				throw ParseExceptMsg("Type must be followed by identifier");
 			}
 
-
-			ident = mSymbols.createIdentifier(getTokenTxt());
+			// Semantic Check: redeclaration (not sure)
+			std::string identName(getTokenTxt());
+			if (mSymbols.isDeclaredInScope(identName.c_str()))
+			{
+				reportSemantError("Invalid redeclaration of identifier '" + identName + "\'");
+				ident = mSymbols.getIdentifier(identName.c_str());
+			}
+			else
+				ident = mSymbols.createIdentifier(identName.c_str());
 
 			consumeToken();
 
@@ -118,6 +125,7 @@ shared_ptr<ASTDecl> Parser::parseDecl()
 			shared_ptr<ASTExpr> assignExpr;
 
 			// Optionally, this decl may have an assignment
+			int col = mColNumber;
 			if (peekAndConsume(Token::Assign))
 			{
 				// We don't allow assignment for int arrays
@@ -133,6 +141,18 @@ shared_ptr<ASTDecl> Parser::parseDecl()
 				}
 
 				// PA2: Type checks
+				if (ident->getType() != Type::Void)
+				{
+					if (ident->getType() == assignExpr->getType());
+					else if (ident->getType() == Type::Char && assignExpr->getType() == Type::Int)
+						assignExpr = intToChar(assignExpr);
+					else
+					{
+						std::string fromType(getTypeText(assignExpr->getType()));
+						std::string toType(getTypeText(ident->getType()));
+						reportSemantError("Cannot assign an expression of type " + fromType + " to " + toType, col);
+					}
+				}
 
 				// If this is a character array, we need to do extra checks
 				if (ident->getType() == Type::CharArray)
@@ -247,19 +267,37 @@ shared_ptr<ASTCompoundStmt> Parser::parseCompoundStmt(bool isFuncBody)
 	shared_ptr<ASTCompoundStmt> retVal;
 
 	// PA1: Implement
-	// isFuncBody not used
+	// may need try catch
 	if (peekAndConsume(Token::LBrace)){
 
 		retVal = make_shared<ASTCompoundStmt>();
 
+		if (!isFuncBody)
+			mSymbols.enterScope();
+
 		// call parseDecl if encounter int or char
 		while (peekIsOneOf({Token::Key_int, Token::Key_char}))
-			retVal.get()->addDecl(parseDecl());
+			retVal->addDecl(parseDecl());
 
 		// call parseStmt untill encounter } or EOF
 		while (!peekIsOneOf({Token::RBrace, Token::EndOfFile}))
-			retVal.get()->addStmt(parseStmt());
+			retVal->addStmt(parseStmt());
 
+		if (!isFuncBody)
+			mSymbols.exitScope();
+
+		if (isFuncBody)
+		{
+			shared_ptr<ASTStmt> lastStmt = retVal->getLastStmt();
+			ASTReturnStmt* lastPtr = dynamic_cast<ASTReturnStmt*>(lastStmt.get());
+			if (!lastPtr && mCurrReturnType == Type::Void)
+			{
+				shared_ptr<ASTReturnStmt> voidReturn = make_shared<ASTReturnStmt>(nullptr);
+				retVal->addStmt(voidReturn);
+			}
+			else if (!lastPtr)
+				reportSemantError("USC requires non-void functions to end with a return");
+		}
 		matchToken(Token::RBrace);
 	}
 	return retVal;
@@ -359,7 +397,20 @@ shared_ptr<ASTStmt> Parser::parseAssignStmt()
 			else
 			{
 				// PA2: Check for semantic errors
-
+				if (ident->isArray())
+					reportSemantError("Reassignment of arrays is not allowed", col);
+				else if (ident->getType() != Type::Void && expr->getType() != Type::Void)
+				{
+					if (ident->getType() == expr->getType());
+					else if (ident->getType() == Type::Char && expr->getType() == Type::Int)
+						expr = intToChar(expr);
+					else
+					{
+						std::string fromType(getTypeText(expr->getType()));
+						std::string toType(getTypeText(ident->getType()));
+						reportSemantError("Cannot assign an expression of type " + fromType + " to " + toType, col);
+					}
+				}
 				retVal = make_shared<ASTAssignStmt>(*ident, expr);
 			}
 
@@ -457,16 +508,34 @@ shared_ptr<ASTReturnStmt> Parser::parseReturnStmt()
 
 	// PA1: Implement
 	if (peekAndConsume(Token::Key_return)){
-		if (peekAndConsume(Token::SemiColon))
+		if (peekToken() == Token::SemiColon)
+		{
 			// return ;
+			int col = mColNumber;
+			if (mCurrReturnType != Type::Void)
+				reportSemantError("Invalid empty return in non-void function", col);
 			retVal = make_shared<ASTReturnStmt>(nullptr);
+		}
 		else
 		{
 			// return Expr;
+			int col = mColNumber;
 			shared_ptr<ASTExpr> expr = parseExpr();
+
+			if (expr->getType() == Type::Int && mCurrReturnType == Type::Char)
+				expr = intToChar(expr);
+			else if (expr->getType() == mCurrReturnType)
+				;
+			else
+			{
+				std::string msg(getTypeText(mCurrReturnType));
+				// std::string msg2(getTypeText(expr->getType()));
+				reportSemantError("Expected type " + msg + " in return statement", col);
+			}
+
 			retVal = make_shared<ASTReturnStmt>(expr);
-			matchToken(Token::SemiColon);
 		}
+		matchToken(Token::SemiColon);
 	}
 	return retVal;
 }

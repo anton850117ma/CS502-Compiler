@@ -24,11 +24,11 @@
 int main()
 {
 	int x = 1;
-	
+
 	while (x < 11)
 	{
 		printf("%d", x);
-		
+
 		// This is, of course, not the most efficient way
 		// to write this code.
 		if (!(x % 2))
@@ -38,7 +38,7 @@ int main()
 			{
 				printf("%d is a multiple of %d.\n", x, 3);
 			}
-			
+
 			if (!(x % 5))
 			{
 				printf("%d is a multiple of %d.\n", x, 5);
@@ -56,9 +56,9 @@ int main()
 		{
 			printf(" is not a multiple of 2, 3 or 5.\n");
 		}
-		
+
 		++x;
 	}
-	
+
 	return 0;
 }

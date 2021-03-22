@@ -27,29 +27,45 @@ using namespace uscc::parse;
 bool ASTLogicalAnd::finalizeOp() noexcept
 {
 	// PA2: Implement
-	
-	return true;
+	if (mLHS->getType() == Type::Int && mRHS->getType() == Type::Int)
+	{
+		this->mType = Type::Int;
+		return true;
+	}
+	else return false;
 }
 
 bool ASTLogicalOr::finalizeOp() noexcept
 {
 	// PA2: Implement
-	
-	return true;
+	if (mLHS->getType() == Type::Int && mRHS->getType() == Type::Int)
+	{
+		this->mType = Type::Int;
+		return true;
+	}
+	else return false;
 }
 
 bool ASTBinaryCmpOp::finalizeOp() noexcept
 {
 	// PA2: Implement
-	
-	return true;
+	if (mLHS->getType() == Type::Int && mRHS->getType() == Type::Int)
+	{
+		this->mType = Type::Int;
+		return true;
+	}
+	else return false;
 }
 
 bool ASTBinaryMathOp::finalizeOp() noexcept
 {
 	// PA2: Implement
-	
-	return true;
+	if (mLHS->getType() == Type::Int && mRHS->getType() == Type::Int)
+	{
+		this->mType = Type::Int;
+		return true;
+	}
+	else return false;
 }
 
 ASTConstantExpr::ASTConstantExpr(const std::string& constStr)
@@ -57,7 +73,7 @@ ASTConstantExpr::ASTConstantExpr(const std::string& constStr)
 	// ConstExpr is always evaluated as a 32-bit integer
 	// it can later be converted to a char at assignment
 	mType = Type::Int;
-	
+
 	// Is this a character in ''?
 	if (constStr[0] == '\'')
 	{
@@ -91,7 +107,7 @@ ASTStringExpr::ASTStringExpr(const std::string& str, StringTable& tbl)
 	// This function can only be called if this is a valid string
 	std::string actStr = str.substr(1, str.length() - 2);
 	mType = Type::CharArray;
-	
+
 	// Replace valid escape sequences
 	size_t pos = actStr.find("\\n");
 	while (pos != std::string::npos)
@@ -99,14 +115,14 @@ ASTStringExpr::ASTStringExpr(const std::string& str, StringTable& tbl)
 		actStr.replace(pos, 2, "\n");
 		pos = actStr.find("\\n");
 	}
-	
+
 	pos = actStr.find("\\t");
 	while (pos != std::string::npos)
 	{
 		actStr.replace(pos, 2, "\t");
 		pos = actStr.find("\\t");
 	}
-	
+
 	// Now grab this from the StringTable
 	mString = tbl.getString(actStr);
 }

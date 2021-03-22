@@ -45,9 +45,9 @@ struct ConstantOps : public FunctionPass
 {
 	static char ID;
 	ConstantOps() : FunctionPass(ID) {}
-	
+
 	virtual bool runOnFunction(llvm::Function& F) override;
-	
+
 	virtual void getAnalysisUsage(llvm::AnalysisUsage& Info) const override;
 };
 
@@ -56,9 +56,9 @@ struct ConstantBranch : public FunctionPass
 {
 	static char ID;
 	ConstantBranch() : FunctionPass(ID) {}
-	
+
 	virtual bool runOnFunction(llvm::Function& F) override;
-	
+
 	virtual void getAnalysisUsage(llvm::AnalysisUsage& Info) const override;
 };
 
@@ -67,20 +67,26 @@ struct DeadBlocks : public FunctionPass
 {
 	static char ID;
 	DeadBlocks() : FunctionPass(ID) {}
-	
+
 	virtual bool runOnFunction(llvm::Function& F) override;
-	
+
 	virtual void getAnalysisUsage(llvm::AnalysisUsage& Info) const override;
 };
-	
+
 // Loop invariant code motion
 struct LICM : public LoopPass
 {
 	static char ID;
 	LICM() : LoopPass(ID) {}
-	
+
+	bool isSafeToHoistInstr(llvm::Instruction *Inst);
+
+	void hoistInstr(llvm::Instruction *Inst);
+
+	void hoistPreOrder(llvm::DomTreeNode *DTNode);
+
 	virtual bool runOnLoop(llvm::Loop* L, llvm::LPPassManager& LPM) override;
-	
+
 	virtual void getAnalysisUsage(llvm::AnalysisUsage& Info) const override;
 
 	// Data regarding the current loop
@@ -95,6 +101,6 @@ struct LICM : public LoopPass
 	// Denotes whether or not loop has been modified
 	bool mChanged;
 };
-	
+
 } // opt
 } // uscc

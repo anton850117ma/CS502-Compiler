@@ -1,6 +1,14 @@
 {
-    "python.pythonPath": "/usr/bin/python",
     "files.associations": {
-        "*.def": "cpp"
+        "*.def": "cpp",
+        "list": "cpp",
+        "unordered_map": "cpp",
+        "array": "cpp",
+        "tuple": "cpp",
+        "utility": "cpp",
+        "deque": "cpp",
+        "vector": "cpp",
+        "string_view": "cpp",
+        "iostream": "cpp"
     }
 }

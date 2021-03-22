@@ -40,27 +40,27 @@ using namespace llvm;
 AST_EMIT(ASTProgram)
 {
 	ctx.mModule = new Module("main", ctx.mGlobal);
-	
+
 	// Write the global string table
 	ctx.mStrings.emitIR(ctx);
-	
+
 	// Emit declaration for stdlib "printf", if we need it
 	if (ctx.mPrintfIdent != nullptr)
 	{
 		std::vector<llvm::Type*> printfArgs;
 		printfArgs.push_back(llvm::Type::getInt8PtrTy(ctx.mGlobal));
-		
+
 		FunctionType* printfType = FunctionType::get(llvm::Type::getInt32Ty(ctx.mGlobal),
 													 printfArgs, true);
-		
+
 		Function* func = Function::Create(printfType, GlobalValue::LinkageTypes::ExternalLinkage,
 										  "printf", ctx.mModule);
 		func->setCallingConv(CallingConv::C);
-		
+
 		// Map the printf ident to this function
 		ctx.mPrintfIdent->setAddress(func);
 	}
-	
+
 	// Emit code for all the functions
 	for (auto f : mFuncs)
 	{
@@ -74,7 +74,7 @@ AST_EMIT(ASTProgram)
 AST_EMIT(ASTFunction)
 {
 	FunctionType* funcType = nullptr;
-	
+
 	// First get the return type (there's only three choices)
 	llvm::Type* retType = nullptr;
 	if (mReturnType == Type::Int)
@@ -89,7 +89,7 @@ AST_EMIT(ASTFunction)
 	{
 		retType = llvm::Type::getVoidTy(ctx.mGlobal);
 	}
-	
+
 	if (mArgs.size() == 0)
 	{
 		funcType = FunctionType::get(retType, false);
@@ -102,26 +102,26 @@ AST_EMIT(ASTFunction)
 		{
 			args.push_back(arg->getIdent().llvmType());
 		}
-		
+
 		funcType = FunctionType::get(retType, args, false);
 	}
-	
+
 	// Create the function, and make it the current one
 	ctx.mFunc = Function::Create(funcType,
 								 GlobalValue::LinkageTypes::ExternalLinkage,
 								 mIdent.getName(), ctx.mModule);
-	
+
 	// Now that we have a new function, reset our SSA builder
 	ctx.mSSA.reset();
-	
+
 	// Map the ident to this function
 	mIdent.setAddress(ctx.mFunc);
-	
+
 	// Create the entry basic block
 	ctx.mBlock = BasicBlock::Create(ctx.mGlobal, "entry", ctx.mFunc);
 	// Add and seal this block
 	ctx.mSSA.addBlock(ctx.mBlock, true);
-	
+
 	// If we have arguments, we need to set the name/value of them
 	if (mArgs.size() > 0)
 	{
@@ -132,29 +132,29 @@ AST_EMIT(ASTFunction)
 		{
 			Identifier& argIdent = mArgs[i]->getIdent();
 			iter->setName(argIdent.getName());
-			
+
 			// PA4: Remove the setAddress call
 			// (Technically, iter actually has the value of the
 			// arg, not its address...but we will use the address
 			// member for this value)
-			argIdent.setAddress(iter);
-			
+			// argIdent.setAddress(iter);
+
 			// PA4: Write to this identifier
-			// argIdent.writeTo(ctx, iter);
-			
+			argIdent.writeTo(ctx, iter);
+
 			++i;
 			++iter;
 		}
 	}
-	
+
 	ctx.mFunc->setCallingConv(CallingConv::C);
-	
+
 	// Add all the declarations for variables created in this function
 	mScopeTable.emitIR(ctx);
-	
+
 	// Now emit the body
 	mBody->emitIR(ctx);
-	
+
 	return ctx.mFunc;
 }
 
@@ -168,10 +168,10 @@ AST_EMIT(ASTArraySub)
 {
 	// Evaluate the sub expression to get the desired index
 	Value* arrayIdx = mExpr->emitIR(ctx);
-	
+
 	// This address should already be saved
 	Value* addr = mIdent.readFrom(ctx);
-	
+
 	// GEP from the array address
 	IRBuilder<> build(ctx.mBlock);
 	return build.CreateInBoundsGEP(addr, arrayIdx);
@@ -188,24 +188,24 @@ AST_EMIT(ASTBadExpr)
 AST_EMIT(ASTLogicalAnd)
 {
 	// This is extremely similar to logical or
-	
+
 	// Create the block for the RHS
 	BasicBlock* rhsBlock = BasicBlock::Create(ctx.mGlobal, "and.rhs", ctx.mFunc);
 	// Add the rhs block to SSA (not sealed)
 	ctx.mSSA.addBlock(rhsBlock);
-	
+
 	// In both "true" and "false" condition, we'll jump to and.end
 	// This is because we'll insert a phi node that assume false
 	// if the and.end jump was from the lhs block
 	BasicBlock* endBlock = BasicBlock::Create(ctx.mGlobal, "and.end", ctx.mFunc);
 	// Also not sealed
 	ctx.mSSA.addBlock(endBlock);
-	
+
 	// Now generate the LHS
 	Value* lhsVal = mLHS->emitIR(ctx);
-	
+
 	BasicBlock* lhsBlock = ctx.mBlock;
-	
+
 	// Add the branch to the end of the LHS
 	{
 		IRBuilder<> build(ctx.mBlock);
@@ -214,37 +214,37 @@ AST_EMIT(ASTLogicalAnd)
 		lhsVal = build.CreateICmpNE(lhsVal, ctx.mZero, "tobool");
 		build.CreateCondBr(lhsVal, rhsBlock, endBlock);
 	}
-	
+
 	// rhsBlock should now be sealed
 	ctx.mSSA.sealBlock(rhsBlock);
-	
+
 	// Code should now be generated in the RHS block
 	ctx.mBlock = rhsBlock;
 	Value* rhsVal = mRHS->emitIR(ctx);
-	
+
 	// This is the final RHS block (for the phi node)
 	rhsBlock = ctx.mBlock;
-	
+
 	// Add the branch and the end of the RHS
 	{
 		IRBuilder<> build(ctx.mBlock);
 		rhsVal = build.CreateICmpNE(rhsVal, ctx.mZero, "tobool");
-		
+
 		// We do an unconditional branch because the phi mode will handle
 		// the correct value
 		build.CreateBr(endBlock);
 	}
-	
+
 	// endBlock should now be sealed
 	ctx.mSSA.sealBlock(endBlock);
-	
+
 	ctx.mBlock = endBlock;
-	
+
 	IRBuilder<> build(ctx.mBlock);
-	
+
 	// Figure out the value to zext
 	Value* zextVal = nullptr;
-	
+
 	// If rhs is not also false, we need to make a phi
 	if (rhsVal != ConstantInt::getFalse(ctx.mGlobal))
 	{
@@ -258,7 +258,7 @@ AST_EMIT(ASTLogicalAnd)
 	{
 		zextVal = ConstantInt::getFalse(ctx.mGlobal);
 	}
-	
+
 	return build.CreateZExt(zextVal, llvm::Type::getInt32Ty(ctx.mGlobal));
 }
 
@@ -275,12 +275,12 @@ AST_EMIT(ASTLogicalOr)
 	BasicBlock* endBlock = BasicBlock::Create(ctx.mGlobal, "lor.end", ctx.mFunc);
 	// Also not sealed
 	ctx.mSSA.addBlock(endBlock);
-	
+
 	// Now generate the LHS
 	Value* lhsVal = mLHS->emitIR(ctx);
-	
+
 	BasicBlock* lhsBlock = ctx.mBlock;
-	
+
 	// Add the branch to the end of the LHS
 	{
 		IRBuilder<> build(ctx.mBlock);
@@ -289,37 +289,37 @@ AST_EMIT(ASTLogicalOr)
 		lhsVal = build.CreateICmpNE(lhsVal, ctx.mZero, "tobool");
 		build.CreateCondBr(lhsVal, endBlock, rhsBlock);
 	}
-	
+
 	// rhsBlock should now be sealed
 	ctx.mSSA.sealBlock(rhsBlock);
-	
+
 	// Code should now be generated in the RHS block
 	ctx.mBlock = rhsBlock;
 	Value* rhsVal = mRHS->emitIR(ctx);
-	
+
 	// This is the final RHS block (for the phi node)
 	rhsBlock = ctx.mBlock;
-	
+
 	// Add the branch and the end of the RHS
 	{
 		IRBuilder<> build(ctx.mBlock);
 		rhsVal = build.CreateICmpNE(rhsVal, ctx.mZero, "tobool");
-		
+
 		// We do an unconditional branch because the phi mode will handle
 		// the correct value
 		build.CreateBr(endBlock);
 	}
-	
+
 	// endBlock should now be sealed
 	ctx.mSSA.sealBlock(endBlock);
-	
+
 	ctx.mBlock = endBlock;
-	
+
 	IRBuilder<> build(ctx.mBlock);
-	
+
 	// Figure out the value to zext
 	Value* zextVal = nullptr;
-	
+
 	// If rhs is not also true, we need to make a phi
 	if (rhsVal != ConstantInt::getTrue(ctx.mGlobal))
 	{
@@ -333,25 +333,69 @@ AST_EMIT(ASTLogicalOr)
 	{
 		zextVal = ConstantInt::getTrue(ctx.mGlobal);
 	}
-	
+
 	return build.CreateZExt(zextVal, llvm::Type::getInt32Ty(ctx.mGlobal));
 }
 
 AST_EMIT(ASTBinaryCmpOp)
 {
 	Value* retVal = nullptr;
-	
+
 	// PA3: Implement
-	
-	return retVal;
+	Value* lhsVal = mLHS->emitIR(ctx);
+	Value* rhsVal = mRHS->emitIR(ctx);
+	IRBuilder<> build(ctx.mBlock);
+
+	switch(mOp)
+	{
+		case scan::Token::EqualTo:
+			retVal = build.CreateICmpEQ(lhsVal, rhsVal, "eq");
+			break;
+		case scan::Token::NotEqual:
+			retVal = build.CreateICmpNE(lhsVal, rhsVal, "ne");
+			break;
+		case scan::Token::GreaterThan:
+			retVal = build.CreateICmpSGT(lhsVal, rhsVal, "gt");
+			break;
+		case scan::Token::LessThan:
+			retVal = build.CreateICmpSLT(lhsVal, rhsVal, "lt");
+			break;
+		default:
+			break;
+	}
+	// cast to 32 bit integer
+	return build.CreateZExt(retVal, llvm::Type::getInt32Ty(ctx.mGlobal));
 }
 
 AST_EMIT(ASTBinaryMathOp)
 {
 	Value* retVal = nullptr;
-	
+
 	// PA3: Implement
-	
+	Value* lhsVal = mLHS->emitIR(ctx);
+	Value* rhsVal = mRHS->emitIR(ctx);
+	IRBuilder<> build(ctx.mBlock);
+
+	switch(mOp)
+	{
+		case scan::Token::Plus:
+			retVal = build.CreateAdd(lhsVal, rhsVal, "add");
+			break;
+		case scan::Token::Minus:
+			retVal = build.CreateSub(lhsVal, rhsVal, "sub");
+			break;
+		case scan::Token::Mult:
+			retVal = build.CreateMul(lhsVal, rhsVal, "mul");
+			break;
+		case scan::Token::Div:
+			retVal = build.CreateSDiv(lhsVal, rhsVal, "sdiv");
+			break;
+		case scan::Token::Mod:
+			retVal = build.CreateSRem(lhsVal, rhsVal, "srem");
+			break;
+		default:
+			break;
+	}
 	return retVal;
 }
 
@@ -359,9 +403,14 @@ AST_EMIT(ASTBinaryMathOp)
 AST_EMIT(ASTNotExpr)
 {
 	Value* retVal = nullptr;
-	
+
 	// PA3: Implement
-	
+	IRBuilder<> build(ctx.mBlock);
+	// opposite from if condition
+	retVal = build.CreateICmpEQ(mExpr->emitIR(ctx), ctx.mZero, "tobool");
+	retVal = build.CreateZExt(retVal, llvm::Type::getInt32Ty(ctx.mGlobal));
+	// CreateNot is no need
+
 	return retVal;
 }
 
@@ -369,9 +418,14 @@ AST_EMIT(ASTNotExpr)
 AST_EMIT(ASTConstantExpr)
 {
 	Value* retVal = nullptr;
-	
+
 	// PA3: Implement
-	
+	// convert regular type to llvm type
+	if (mType == Type::Int)
+		retVal = ConstantInt::get(llvm::Type::getInt32Ty(ctx.mGlobal), mValue);
+	else if (mType == Type::Char)
+		retVal = ConstantInt::get(llvm::Type::getInt8Ty(ctx.mGlobal), mValue);
+
 	return retVal;
 }
 
@@ -392,14 +446,14 @@ AST_EMIT(ASTArrayExpr)
 
 	IRBuilder<> build(ctx.mBlock);
 	// Now load this value and return
-	
+
 	// NOTE: This still needs to be a load because arrays are in memory
 	return build.CreateLoad(addr);
 }
 
 AST_EMIT(ASTFuncExpr)
 {
-	
+
 	// At this point, we can assume the argument types match
 	// Create the list of arguments
 	std::vector<Value*> callList;
@@ -417,24 +471,24 @@ AST_EMIT(ASTFuncExpr)
 				std::vector<llvm::Value*> gepIdx;
 				gepIdx.push_back(ctx.mZero);
 				gepIdx.push_back(ctx.mZero);
-				
+
 				argValue = build.CreateInBoundsGEP(argValue, gepIdx);
 			}
 			else
 			{
-				IRBuilder<> build(ctx.mBlock);				
+				IRBuilder<> build(ctx.mBlock);
 				// Need to return the address of the specific index in question
 				// So need a GEP
 				argValue = build.CreateInBoundsGEP(argValue, ctx.mZero);
 			}
 		}
-			
+
 		callList.push_back(argValue);
 	}
-	
+
 	// Now call the function, and return it
 	Value* retVal = nullptr;
-	
+
 	IRBuilder<> build(ctx.mBlock);
 	if (mType != Type::Void)
 	{
@@ -444,25 +498,35 @@ AST_EMIT(ASTFuncExpr)
 	{
 		retVal = build.CreateCall(mIdent.getAddress(), callList);
 	}
-	
+
 	return retVal;
 }
 
 AST_EMIT(ASTIncExpr)
 {
 	Value* retVal = nullptr;
-	
+
 	// PA3: Implement
-	
+	Value* identVal = mIdent.readFrom(ctx);
+	Value* one = ConstantInt::get(identVal->getType(), 1);
+	IRBuilder<> build(ctx.mBlock);
+	retVal = build.CreateAdd(identVal, one, "inc");
+	mIdent.writeTo(ctx, retVal);
+
 	return retVal;
 }
 
 AST_EMIT(ASTDecExpr)
 {
 	Value* retVal = nullptr;
-	
+
 	// PA3: Implement
-	
+	Value* identVal = mIdent.readFrom(ctx);
+	Value* one = ConstantInt::get(identVal->getType(), 1);
+	IRBuilder<> build(ctx.mBlock);
+	retVal = build.CreateSub(identVal, one, "dec");
+	mIdent.writeTo(ctx, retVal);
+
 	return retVal;
 }
 
@@ -492,21 +556,21 @@ AST_EMIT(ASTDecl)
 	if (mExpr)
 	{
 		Value* declExpr = mExpr->emitIR(ctx);
-		
+
 		IRBuilder<> build(ctx.mBlock);
 		// If this is a string, we have to memcpy
 		if (declExpr->getType()->isPointerTy())
 		{
 			// This address should already be saved
 			Value* arrayLoc = mIdent.readFrom(ctx);
-			
+
 			// GEP the address of the src
 			std::vector<llvm::Value*> gepIdx;
 			gepIdx.push_back(ctx.mZero);
 			gepIdx.push_back(ctx.mZero);
-			
+
 			Value*  src = build.CreateGEP(declExpr, gepIdx);
-			
+
 			// Memcpy into the array
 			// memcpy(dest, src, size, align, volatile)
 			build.CreateMemCpy(arrayLoc, src, mIdent.getArrayCount(), 1);
@@ -517,7 +581,7 @@ AST_EMIT(ASTDecl)
 			mIdent.writeTo(ctx, declExpr);
 		}
 	}
-	
+
 	return nullptr;
 }
 
@@ -525,7 +589,11 @@ AST_EMIT(ASTDecl)
 AST_EMIT(ASTCompoundStmt)
 {
 	// PA3: Implement
-	
+	for (auto& itDecl : mDecls)
+		itDecl->emitIR(ctx);
+	for (auto& itstmt : mStmts)
+		itstmt->emitIR(ctx);
+
 	return nullptr;
 }
 
@@ -533,9 +601,13 @@ AST_EMIT(ASTAssignStmt)
 {
 	// This is simpler than decl because we don't allow
 	// assignments to happen later for full arrays
-	
+
 	// PA3: Implement
-	
+	if (mExpr)
+	{
+		Value* aExpr = mExpr->emitIR(ctx);
+		mIdent.writeTo(ctx, aExpr);
+	}
 	return nullptr;
 }
 
@@ -543,36 +615,132 @@ AST_EMIT(ASTAssignArrayStmt)
 {
 	// Generate the expression
 	Value* exprVal = mExpr->emitIR(ctx);
-	
+
 	// Generate the array subscript, which'll give us the address
 	Value* addr = mArray->emitIR(ctx);
 
 	IRBuilder<> build(ctx.mBlock);
-	
+
 	// NOTE: This is still a create store because arrays are always stack-allocated
 	build.CreateStore(exprVal, addr);
-	
+
 	return nullptr;
 }
 
 AST_EMIT(ASTIfStmt)
 {
 	// PA3: Implement
-	
+	BasicBlock* preBlock = ctx.mBlock;
+	BasicBlock* thenBlock = BasicBlock::Create(ctx.mGlobal, "if.then", ctx.mFunc);
+	ctx.mSSA.addBlock(thenBlock);
+	BasicBlock* endBlock = BasicBlock::Create(ctx.mGlobal, "if.end", ctx.mFunc);
+	ctx.mSSA.addBlock(endBlock);
+
+	// check if else statement exits
+	if (mElseStmt)
+	{
+		BasicBlock* elseBlock = BasicBlock::Create(ctx.mGlobal, "if.else", ctx.mFunc);
+		ctx.mSSA.addBlock(elseBlock);
+		// condition to then or else
+		ctx.mBlock = preBlock;
+		Value* condVal = mExpr->emitIR(ctx);
+		{
+			IRBuilder<> build(ctx.mBlock);
+			condVal = build.CreateICmpNE(condVal, ctx.mZero, "tobool");
+			build.CreateCondBr(condVal, thenBlock, elseBlock);
+		}
+		// then to end
+		ctx.mSSA.sealBlock(thenBlock);
+		ctx.mBlock = thenBlock;
+		mThenStmt->emitIR(ctx);
+		{
+			IRBuilder<> build(ctx.mBlock);
+			build.CreateBr(endBlock);
+		}
+		// else to end
+		ctx.mSSA.sealBlock(elseBlock);
+		ctx.mBlock = elseBlock;
+		mElseStmt->emitIR(ctx);
+		IRBuilder<> build(ctx.mBlock);
+		build.CreateBr(endBlock);
+	}
+	else
+	{
+		// condition to then or end
+		ctx.mBlock = preBlock;
+		Value* condVal = mExpr->emitIR(ctx);
+		{
+			IRBuilder<> build(ctx.mBlock);
+			condVal = build.CreateICmpNE(condVal, ctx.mZero, "tobool");
+			build.CreateCondBr(condVal, thenBlock, endBlock);
+		}
+		// then to end
+		ctx.mSSA.sealBlock(thenBlock);
+		ctx.mBlock = thenBlock;
+		mThenStmt->emitIR(ctx);
+		{
+			IRBuilder<> build(ctx.mBlock);
+			build.CreateBr(endBlock);
+		}
+	}
+	ctx.mSSA.sealBlock(endBlock);
+	ctx.mBlock = endBlock;
 	return nullptr;
 }
 
 AST_EMIT(ASTWhileStmt)
 {
 	// PA3: Implement
-	
+	BasicBlock* preBlock = ctx.mBlock;
+	BasicBlock* condBlock = BasicBlock::Create(ctx.mGlobal, "while.cond", ctx.mFunc);
+	BasicBlock* bodyBlock = BasicBlock::Create(ctx.mGlobal, "while.body", ctx.mFunc);
+	BasicBlock* endBlock = BasicBlock::Create(ctx.mGlobal, "while.end", ctx.mFunc);
+	ctx.mSSA.addBlock(condBlock);
+	ctx.mSSA.addBlock(bodyBlock);
+	ctx.mSSA.addBlock(endBlock);
+
+	// predeseccor to condition
+	ctx.mBlock = preBlock;
+	{
+		IRBuilder<> build(ctx.mBlock);
+		build.CreateBr(condBlock);
+	}
+	// condition to body or end
+	ctx.mBlock = condBlock;
+	Value* condVal = mExpr->emitIR(ctx);
+	{
+		IRBuilder<> build(ctx.mBlock);
+		condVal = build.CreateICmpNE(condVal, ctx.mZero, "tobool");
+		build.CreateCondBr(condVal, bodyBlock, endBlock);
+	}
+	// body to condition
+	ctx.mBlock = bodyBlock;
+	Value* bodyVal = mLoopStmt->emitIR(ctx);
+	{
+		IRBuilder<> build(ctx.mBlock);
+		build.CreateBr(condBlock);
+	}
+	// go to end
+	ctx.mSSA.sealBlock(condBlock);
+	ctx.mSSA.sealBlock(bodyBlock);
+	ctx.mSSA.sealBlock(endBlock);
+	ctx.mBlock = endBlock;
+
 	return nullptr;
 }
 
 AST_EMIT(ASTReturnStmt)
 {
 	// PA3: Implement
-	
+	// check if mExpr exists or not
+	IRBuilder<> build(ctx.mBlock);
+	if (!mExpr)
+		build.CreateRetVoid();
+	else
+	{
+		Value* exprVal = mExpr->emitIR(ctx);
+		build.CreateRet(exprVal);
+	}
 	return nullptr;
 }
 
@@ -580,6 +748,7 @@ AST_EMIT(ASTExprStmt)
 {
 	// PA3: Implement
 	// Just emit the expression, don't care about the value
+	mExpr->emitIR(ctx);
 	return nullptr;
 }
 

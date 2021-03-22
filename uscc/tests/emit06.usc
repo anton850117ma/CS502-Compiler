@@ -20,11 +20,11 @@ int main()
 	int x = 'a';
 	char a = x;
 	int y = a;
-	
+
 	printf("%d\n", x == a);
 	printf("%d\n", y);
 	printf("%c\n", ++a);
 	printf("%c\n", --a);
-	
+
 	return 0;
 }
